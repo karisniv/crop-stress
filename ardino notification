@@ -1,0 +1,121 @@
+#define BLYNK_TEMPLATE_ID "TMPL3kE_qf3XY"
+#define BLYNK_TEMPLATE_NAME "PLANT WATERING SYSTEM"
+
+#include <Wire.h>  // Required for I2C
+#include <LiquidCrystal_I2C.h>  // LCD Library
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+BlynkTimer timer;
+
+// Enter your Blynk Auth Token
+char auth[] = "oErGyzZNH-zXRH5QKGU3ktf2hNNHbC0K";
+
+// Enter your WiFi Credentials
+char ssid[] = "vivo V30";
+char pass[] = "12345678";
+
+// Define Sensor and Relay Pins
+#define RELAY_PIN 5   // CHANGED TO GPIO 4
+#define SOIL_SENSOR_PIN 34 // Soil moisture sensor
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("System Starting...");
+
+  // Initialize Blynk
+  Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+
+  // Setup Relay
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);  // Ensure relay is OFF at startup
+  Serial.println("Relay is OFF at startup");
+
+  // LCD Startup Display
+  lcd.setCursor(1, 0);
+  lcd.print("System Loading");
+  for (int a = 0; a <= 15; a++) {
+    lcd.setCursor(a, 1);
+    lcd.print(".");
+    delay(100);
+  }
+  lcd.clear();
+
+  // Set Timer to check soil moisture every 2 seconds
+  timer.setInterval(2000L, soilMoisture);
+}
+
+// Function to Read Soil Moisture
+void soilMoisture() {
+  int value = analogRead(SOIL_SENSOR_PIN);
+  value = map(value, 0, 4095, 0, 100);
+  value = (value - 100) * -1;  // Convert to percentage
+
+  // Send Data to Blynk
+  Blynk.virtualWrite(V0, value);
+  Serial.print("Moisture Level: ");
+  Serial.println(value);
+
+  // Update LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Moisture: ");
+  lcd.print(value);
+  lcd.print("%");
+
+  // Auto ON/OFF Pump Based on Moisture Level
+  if (value < 30) { // Adjust threshold as needed
+    Serial.println("Soil Dry - Turning Pump ON");
+    digitalWrite(RELAY_PIN, LOW);  // Turn Pump ON
+    lcd.setCursor(0, 1);
+    lcd.print("Pump ON (Auto)");
+    
+    // Send Notification
+    Blynk.virtualWrite(V2, "Soil is too dry, watering now");
+  } else if (value >= 30 && value <= 50) {
+    Serial.println("Moisture in optimal range");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Pump OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Next irrigation in 2h");
+    
+    // Send Notification
+    Blynk.virtualWrite(V2, "Next irrigation scheduled in 2 hours");
+  } else {
+    Serial.println("Moisture levels sufficient");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Pump OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Moisture OK");
+    
+    // Send Notification
+    Blynk.virtualWrite(V2, "Moisture levels are sufficient");
+  }
+}
+
+// Blynk Function to Control Motor Manually
+BLYNK_WRITE(V1) {
+  bool motorState = param.asInt();
+  Serial.print("Manual Motor Control: ");
+  Serial.println(motorState);
+
+  if (motorState == 1) {
+    Serial.println("Turning Relay ON (Manual)");
+    digitalWrite(RELAY_PIN, LOW);  // Turn Motor ON
+    lcd.setCursor(0, 1);
+    lcd.print("Motor is ON (Manual)");
+  } else {
+    Serial.println("Turning Relay OFF (Manual)");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Motor OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Motor is OFF (Manual)");
+  }
+}
+
+void loop() {
+  Blynk.run();  // Run the Blynk Library
+  timer.run();  // Run the Timer
+}
