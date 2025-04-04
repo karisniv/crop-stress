@@ -13,7 +13,7 @@ from PIL import Image, ImageTk
 
 # Directories for dataset
 stressed_dir = "Dataset_plants/Stress"
-non_stressed_dir = "Dataset_plants/Non-stess"
+non_stressed_dir = "Dataset_plants/Non-stess"  # Corrected directory name
 
 # Load images and labels
 images = []
@@ -24,16 +24,16 @@ for filename in os.listdir(stressed_dir):
         img = cv2.imread(os.path.join(stressed_dir, filename))
         img = cv2.resize(img, (128, 128))
         images.append(img)
-        labels.append(1)
+        labels.append(1)  # Stressed
 
 for filename in os.listdir(non_stressed_dir):
     if filename.endswith((".jpg", ".png")):
         img = cv2.imread(os.path.join(non_stressed_dir, filename))
         img = cv2.resize(img, (128, 128))
         images.append(img)
-        labels.append(0)
+        labels.append(0)  # Non-stressed
 
-X = np.array(images) / 255.0
+X = np.array(images) / 255.0  # Normalize images
 y = np.array(labels)
 
 # Split dataset
@@ -71,41 +71,37 @@ rf_classifier.fit(X_train_features, y_train)
 # Feature Importance Scores
 feature_importance = rf_classifier.feature_importances_
 
-# Feature Interpretation Mapping
-def interpret_feature(index):
-    if index < 64:
-        return "Edge Detection"
-    elif index < 128:
-        return "Texture"
-    elif index < 192:
-        return "Color"
-    else:
-        return "Shape Patterns"
-
-# Image Prediction
+# Image Prediction with Stress Percentage
 def predict_image(image_path):
     img = cv2.imread(image_path)
     img = cv2.resize(img, (128, 128))
     img = img / 255.0
     img = np.expand_dims(img, axis=0)
     img_features = feature_extractor.predict(img)
-    prediction = rf_classifier.predict(img_features)[0]
-    return "Stressed" if prediction == 1 else "Non-Stressed", img_features.flatten()
+    
+    # Get probabilities from the classifier
+    probabilities = rf_classifier.predict_proba(img_features)[0]
+    stressed_percentage = round(probabilities[1] * 100, 2)
+    non_stressed_percentage = round(probabilities[0] * 100, 2)
+
+    prediction = "Stressed" if probabilities[1] > probabilities[0] else "Non-Stressed"
+    return prediction, stressed_percentage, non_stressed_percentage, img_features.flatten()
 
 # Upload and Display Image
 def upload_image():
     file_path = filedialog.askopenfilename()
     if file_path:
-        result, features = predict_image(file_path)
+        result, stressed_percent, non_stressed_percent, features = predict_image(file_path)
+        
         img = Image.open(file_path)
         img = img.resize((256, 256))
         img = ImageTk.PhotoImage(img)
         panel.config(image=img)
         panel.image = img
-        result_label.config(text=f"Prediction: {result}")
+
+        result_label.config(text=f"Prediction: {result}\nStressed: {stressed_percent}%\nNon-Stressed: {non_stressed_percent}%")
         
         plot_features(features)
-        display_feature_table(features)
 
 # Plot Feature Values
 def plot_features(features):
@@ -116,41 +112,6 @@ def plot_features(features):
     plt.ylabel("Feature Value")
     plt.draw()
     plt.pause(0.001)
-
-# Display Only Most Important Features
-def display_feature_table(features, top_n=10):
-    global feature_table  # Ensure global access
-    
-    print("\n--- Extracted Features Debug Info ---")
-    print(f"Feature vector length: {len(features)}, Importance score length: {len(feature_importance)}")
-    
-    # Select top N important features
-    top_indices = np.argsort(feature_importance)[-top_n:][::-1]
-    
-    # Ensure feature_table exists
-    if feature_table is None or not feature_table.winfo_exists():
-        print("⚠️ feature_table does not exist! Skipping update.")
-        return
-    
-    # Clear previous entries
-    for row in feature_table.get_children():
-        feature_table.delete(row)
-    
-    print("\nPopulating feature table with top important features...\n")
-    for i in top_indices:
-        feature_type = interpret_feature(i)
-        importance = feature_importance[i]
-        meaning = {
-            "Edge Detection": "Sharp edges → possible curling/wilting",
-            "Texture": "Rough texture → dry/damaged leaves",
-            "Color": "High temperature detected → possible stress",
-            "Shape Patterns": "Irregular leaf shape → water deficiency"
-        }.get(feature_type, "Unknown")
-        
-        print(f"Inserting row: {i}, Type: {feature_type}, Value: {features[i]:.4f}, Importance: {importance:.4f}")
-        feature_table.insert("", "end", values=(i, feature_type, round(features[i], 4), round(importance, 4), meaning))
-    
-    root.update_idletasks()
 
 # GUI Setup
 root = tk.Tk()
@@ -165,17 +126,5 @@ btn.pack()
 
 result_label = tk.Label(root, text="Prediction: ", font=("Arial", 14))
 result_label.pack()
-
-frame = tk.Frame(root)
-frame.pack()
-
-columns = ("Feature Index", "Feature Type", "Feature Value", "Importance Score", "Meaning")
-feature_table = ttk.Treeview(frame, columns=columns, show="headings", height=10)
-
-for col in columns:
-    feature_table.heading(col, text=col)
-    feature_table.column(col, anchor="center", width=270)
-
-feature_table.pack()
 
 root.mainloop()
