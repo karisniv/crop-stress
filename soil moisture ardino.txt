@@ -1,0 +1,129 @@
+#define BLYNK_TEMPLATE_ID "TMPL3kE_qf3XY"
+#define BLYNK_TEMPLATE_NAME "PLANT WATERING SYSTEM"
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+BlynkTimer timer;
+
+// Enter your Blynk Auth Token
+char auth[] = "oErGyzZNH-zXRH5QKGU3ktf2hNNHbC0K";
+
+// Enter your WiFi Credentials
+char ssid[] = "M35";
+char pass[] = "karisniv";
+
+// Define Sensor and Relay Pins
+#define RELAY_PIN 5       // Pump relay
+#define SOIL_SENSOR_PIN 34 // Soil moisture sensor
+#define RAIN_SENSOR_PIN 35 // Rain sensor
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("System Starting...");
+
+  // Initialize Blynk
+  Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+
+  // Setup Relay
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);  // Ensure relay is OFF at startup
+
+  // Setup Rain Sensor
+  pinMode(RAIN_SENSOR_PIN, INPUT);
+
+  // LCD Startup Display
+  lcd.setCursor(1, 0);
+  lcd.print("System Loading");
+  for (int a = 0; a <= 15; a++) {
+    lcd.setCursor(a, 1);
+    lcd.print(".");
+    delay(100);
+  }
+  lcd.clear();
+
+  // Set Timer to check sensors every 2 seconds
+  timer.setInterval(2000L, soilMoisture);
+}
+
+// Function to Read Soil Moisture & Rain Sensor Together
+void soilMoisture() {
+  int rainValue = digitalRead(RAIN_SENSOR_PIN);
+  int soilValue = analogRead(SOIL_SENSOR_PIN);
+  soilValue = map(soilValue, 0, 4095, 0, 100);
+  soilValue = (soilValue - 100) * -1;  // Convert to percentage
+
+  // Send Data to Blynk
+  Blynk.virtualWrite(V0, soilValue);
+  Serial.print("Moisture Level: ");
+  Serial.println(soilValue);
+  Serial.print("Rain Sensor: ");
+  Serial.println(rainValue);
+
+  // Update LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Moisture: ");
+  lcd.print(soilValue);
+  lcd.print("%");
+
+  // If rain is detected, turn off the pump immediately
+  if (rainValue == LOW) {  
+    Serial.println("Rain Detected - Turning Pump OFF");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Pump OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Rain Detected!");
+    Blynk.logEvent("rain_detected", "Rain detected! Pump turned off.");
+    return;
+  }
+
+  // Auto ON/OFF Pump Based on Moisture Level
+  if (soilValue < 20) {  // If soil is too dry
+    Serial.println("Soil Dry - Turning Pump ON");
+    digitalWrite(RELAY_PIN, LOW);  // Turn Pump ON
+    lcd.setCursor(0, 1);
+    lcd.print("Pump ON (Auto)");
+    Blynk.logEvent("soil_dry", "Warning: Soil is too dry! Pump activated.");
+  } 
+  else if (soilValue >= 50) {  // If soil reaches 50% or more
+    Serial.println("Soil Moist - Turning Pump OFF");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Pump OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Pump OFF (50%+)");
+    Blynk.logEvent("soil_moist", "Soil moisture reached 50%. Pump turned off.");
+  } 
+  else {
+    Serial.println("Moisture Level Normal - Pump Maintains State");
+  }
+}
+
+// Blynk Function to Control Motor Manually
+BLYNK_WRITE(V1) {
+  bool motorState = param.asInt();
+  Serial.print("Manual Motor Control: ");
+  Serial.println(motorState);
+
+  if (motorState == 1) {
+    Serial.println("Turning Relay ON (Manual)");
+    digitalWrite(RELAY_PIN, LOW);  // Turn Motor ON
+    lcd.setCursor(0, 1);
+    lcd.print("Motor is ON (Manual)");
+  } else {
+    Serial.println("Turning Relay OFF (Manual)");
+    digitalWrite(RELAY_PIN, HIGH); // Turn Motor OFF
+    lcd.setCursor(0, 1);
+    lcd.print("Motor is OFF (Manual)");
+  }
+}
+
+void loop() {
+  Blynk.run();  
+  timer.run();  
+}
